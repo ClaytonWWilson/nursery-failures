@@ -1,6 +1,6 @@
-use std::{fs, io, path::Path, process::exit};
-
 use calamine::{open_workbook, Reader, Xlsx};
+use regex::Regex;
+use std::{fs, io, path::Path, process::exit};
 
 const FAILURES_FOLDER: &str = "./failures";
 
@@ -15,6 +15,28 @@ fn rem_last(value: &String) -> String {
     let mut chars = value.chars();
     chars.next_back();
     return String::from(value);
+}
+
+fn file_name_to_station_name(file_name: &String) -> Result<String, String> {
+    let re = match Regex::new(r"^error_failure[A-Z]{3}[1-9]{1}-") {
+        Ok(exp) => exp,
+        Err(e) => {
+            return Err(e.to_string());
+        }
+    };
+
+    let file_name_match = match re.find(file_name.as_str()) {
+        Some(m) => m,
+        None => {
+            return Err("Can't find station name in file name".to_string());
+        }
+    };
+
+    let start = "error_failure".len();
+    let end = &file_name_match.as_str().len() - 1;
+    let station_name = &file_name_match.as_str()[start..end];
+
+    Ok(station_name.to_string())
 }
 
 fn main() {
@@ -83,7 +105,7 @@ fn main() {
                 });
 
             if output_data.len() == 0 {
-                output_data += "filename,";
+                output_data += "filename,station_name,";
                 headers_row
                     .iter()
                     .for_each(|h| output_data += &format!("{},", h));
@@ -93,7 +115,21 @@ fn main() {
 
             failure_rows.for_each(|r| {
                 failed_dsp_count += 1;
-                output_data += &format!("{:?},", item.file_name());
+                output_data += &format!("{},", item.file_name().to_string_lossy());
+                let station_name = match file_name_to_station_name(&format!(
+                    "{},",
+                    item.file_name().to_string_lossy()
+                )) {
+                    Ok(name) => name,
+                    Err(_) => {
+                        println!(
+                            "Couldn't find station name in file '{}'. Using 'unknown' in output.",
+                            item.file_name().to_string_lossy()
+                        );
+                        "unknown".to_string()
+                    }
+                };
+                output_data += &format!("{:?},", station_name);
                 r.iter().for_each(|v| {
                     output_data += &format!("{},", format!("{}", v).replace(",", ""))
                 });
